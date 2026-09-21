@@ -28,7 +28,7 @@ juce_add_plugin(CardizOne
   EDITOR_WANTS_KEYBOARD_FOCUS FALSE
   COPY_PLUGIN_AFTER_BUILD FALSE
   VST3_CATEGORIES Fx Mastering)
-
+juce_generate_juce_header(CardizOne)
 target_sources(CardizOne PRIVATE
   Source/PluginProcessor.cpp Source/PluginProcessor.h
   Source/PluginEditor.cpp Source/PluginEditor.h)
