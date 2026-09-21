@@ -5,7 +5,7 @@ GoldLookAndFeel::GoldLookAndFeel(){ setColour(juce::Slider::textBoxTextColourId,
 void GoldLookAndFeel::drawRotarySlider(juce::Graphics& g,int x,int y,int w,int h,float p,float a0,float a1,juce::Slider&){
   auto r=juce::Rectangle<float>((float)x,(float)y,(float)w,(float)h).reduced(10); auto c=r.getCentre();
   g.setColour(juce::Colour::fromRGB(7,8,9)); g.fillEllipse(r); g.setColour(gold.darker(.45f)); g.drawEllipse(r,2.f);
-  juce::Path arc; arc.addCentredArc(c.x,c.y,r.getWidth()*.55f,r.getHeight()*.55f,0,a0,a0+(a1-a0)*p,true); g.setColour(gold); g.strokePath(arc,{3.f});
+  juce::Path arc; arc.addCentredArc(c.x,c.y,r.getWidth()*.55f,r.getHeight()*.55f,0,a0,a0+(a1-a0)*p,true); g.setColour(gold); g.strokePath(arc,juce::PathStrokeType(3.f));
   juce::Path needle; needle.addRoundedRectangle(-1.5f,-r.getHeight()*.30f,3.f,r.getHeight()*.27f,1.5f); g.fillPath(needle,juce::AffineTransform::rotation(a0+(a1-a0)*p).translated(c.x,c.y));
 }
 void GoldLookAndFeel::drawButtonBackground(juce::Graphics& g,juce::Button& b,const juce::Colour&,bool over,bool down){
