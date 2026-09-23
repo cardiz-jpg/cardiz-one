@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(CardizOne VERSION 0.3.0 LANGUAGES CXX)
+project(CardizOne VERSION 0.6.0 LANGUAGES CXX)
 
 if(APPLE)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version" FORCE)
@@ -28,7 +28,7 @@ juce_add_plugin(CardizOne
   EDITOR_WANTS_KEYBOARD_FOCUS FALSE
   COPY_PLUGIN_AFTER_BUILD FALSE
   VST3_CATEGORIES Fx Mastering)
-juce_generate_juce_header(CardizOne)
+
 target_sources(CardizOne PRIVATE
   Source/PluginProcessor.cpp Source/PluginProcessor.h
   Source/PluginEditor.cpp Source/PluginEditor.h)

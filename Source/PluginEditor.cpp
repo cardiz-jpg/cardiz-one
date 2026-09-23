@@ -96,41 +96,98 @@ CardizOneAudioProcessorEditor::CardizOneAudioProcessorEditor(CardizOneAudioProce
   : AudioProcessorEditor(&p), processor(p) {
   setLookAndFeel(&look);
   setResizable(false, false);
-  setSize(1000, 570);
+  setSize(1000, 650);
 
   for (auto* s : {&tonal, &glue, &punch, &width}) {
     addAndMakeVisible(s);
     s->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     s->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 62, 19);
   }
-  for (auto* b : {&vox, &master, &pro, &finish}) {
+  for (auto* b : {&vox, &master, &pro, &finish, &before, &after}) {
     addAndMakeVisible(b);
     b->setClickingTogglesState(false);
   }
+  addAndMakeVisible(voiceStyle);
+  voiceStyle.addItemList({"LATINO URBANO","ELECTRONICA","BALADA","NATURAL"},1);
+  addAndMakeVisible(masterStyle);
+  masterStyle.addItemList({"STREAMING MODERNO","CLUB / ELECTRONICA","BALADA / ORGANICO","TRANSPARENTE"},1);
+  addAndMakeVisible(proStyle);
+  proStyle.addItemList({"IMPACTO CONTROLADO","DINAMICA ABIERTA","BALANCE CALIDO","REFERENCIA NEUTRA"},1);
+  for(auto* profile:{&voiceStyle,&masterStyle,&proStyle}) {
+    profile->setJustificationType(juce::Justification::centred);
+    profile->setColour(juce::ComboBox::backgroundColourId,C::black);
+    profile->setColour(juce::ComboBox::outlineColourId,C::gold.withAlpha(.65f));
+    profile->setColour(juce::ComboBox::textColourId,C::ivory);
+  }
+  addAndMakeVisible(analysisStatus);
+  analysisStatus.setJustificationType(juce::Justification::centred);
+  analysisStatus.setColour(juce::Label::textColourId,C::pale);
+  analysisStatus.setFont(juce::Font(juce::FontOptions(10.f)).withExtraKerningFactor(.08f));
+  for(auto* label:{&diagnosticDetail,&recommendation}) {
+    addAndMakeVisible(label);
+    label->setJustificationType(juce::Justification::centred);
+    label->setColour(juce::Label::textColourId,C::ivory.withAlpha(.86f));
+    label->setFont(juce::Font(juce::FontOptions(10.f)).withExtraKerningFactor(.04f));
+    label->setMinimumHorizontalScale(.70f);
+  }
+  diagnosticDetail.setText("RMS · CREST · SIBILANCIA · RESONANCIAS · BALANCE TONAL",juce::dontSendNotification);
+  recommendation.setText("Selecciona un modo y reproduce una zona representativa de la pista",juce::dontSendNotification);
 
-  vox.onClick = [this] { selectMode(0); };
-  master.onClick = [this] { selectMode(1); };
-  pro.onClick = [this] { selectMode(2); };
+  vox.onClick = [this] { selectMode(0, true); };
+  master.onClick = [this] { selectMode(1, true); };
+  pro.onClick = [this] { selectMode(2, true); };
   finish.onClick = [this] {
-    auto* a = processor.apvts.getRawParameterValue("analyze");
-    *a = a->load() > 0.5f ? 0.0f : 1.0f;
+    processor.beginAnalysis();
+    analysisStatus.setText("ESCUCHANDO LA PISTA...",juce::dontSendNotification);
+    diagnosticDetail.setText("Midiendo energia, dinamica y contenido espectral",juce::dontSendNotification);
+    recommendation.setText("Mantén la reproduccion activa durante todo el analisis",juce::dontSendNotification);
+  };
+  before.onClick=[this] {
+    if(auto* p=processor.apvts.getParameter("compareDry")) p->setValueNotifyingHost(1.f);
+  };
+  after.onClick=[this] {
+    if(auto* p=processor.apvts.getParameter("compareDry")) p->setValueNotifyingHost(0.f);
   };
 
   aTonal = std::make_unique<SA>(p.apvts, "tonal", tonal);
   aGlue = std::make_unique<SA>(p.apvts, "glue", glue);
   aPunch = std::make_unique<SA>(p.apvts, "punch", punch);
   aWidth = std::make_unique<SA>(p.apvts, "width", width);
+  aStyle = std::make_unique<CA>(p.apvts,"voiceStyle",voiceStyle);
+  aMasterStyle = std::make_unique<CA>(p.apvts,"masterStyle",masterStyle);
+  aProStyle = std::make_unique<CA>(p.apvts,"proStyle",proStyle);
   selectMode((int) p.apvts.getRawParameterValue("mode")->load());
   startTimerHz(30);
 }
 
 CardizOneAudioProcessorEditor::~CardizOneAudioProcessorEditor() { setLookAndFeel(nullptr); }
 
-void CardizOneAudioProcessorEditor::selectMode(int mode) {
-  *processor.apvts.getRawParameterValue("mode") = (float) mode;
+void CardizOneAudioProcessorEditor::selectMode(int mode, bool applyPreset) {
+  if(auto* p=processor.apvts.getParameter("mode"))
+    p->setValueNotifyingHost(p->convertTo0to1((float)mode));
+  processor.analysisRunning.store(false);
+  processor.analysisReady.store(false);
+  processor.analysisProgress.store(0.f);
   vox.setToggleState(mode == 0, juce::dontSendNotification);
   master.setToggleState(mode == 1, juce::dontSendNotification);
   pro.setToggleState(mode == 2, juce::dontSendNotification);
+  voiceStyle.setVisible(mode==0);
+  masterStyle.setVisible(mode==1);
+  proStyle.setVisible(mode==2);
+  finish.setButtonText(mode==0 ? "ANALIZAR VOZ" : (mode==1 ? "ANALIZAR MASTER" : "ANALIZAR"));
+  if(applyPreset && mode==1) {
+    struct V { const char* id; float value; } values[] {{"tonal",55.f},{"glue",52.f},{"punch",60.f},{"width",55.f},{"makeup",1.5f}};
+    for(auto v:values) if(auto* p=processor.apvts.getParameter(v.id)) p->setValueNotifyingHost(p->convertTo0to1(v.value));
+    analysisStatus.setText("ONE MASTER · ELIGE PERFIL Y ANALIZA LA MEZCLA",juce::dontSendNotification);
+  } else if(applyPreset && mode==0) {
+    analysisStatus.setText("ESCOGE UN ESTILO Y PULSA ANALIZAR VOZ",juce::dontSendNotification);
+  } else if(applyPreset) {
+    analysisStatus.setText("PRO · ELIGE ESTRATEGIA Y EJECUTA EL DIAGNOSTICO",juce::dontSendNotification);
+  }
+  if(applyPreset) {
+    diagnosticDetail.setText("RMS · CREST · SIBILANCIA · RESONANCIAS · BALANCE TONAL",juce::dontSendNotification);
+    recommendation.setText("Reproduce una zona representativa antes de iniciar el analisis",juce::dontSendNotification);
+  }
   repaint();
 }
 
@@ -198,14 +255,14 @@ void CardizOneAudioProcessorEditor::drawLufsDial(juce::Graphics& g,
              juce::Justification::centred);
   g.setColour(C::ivory);
   g.setFont(juce::Font(juce::FontOptions(d * 0.072f)).withExtraKerningFactor(0.12f));
-  g.drawText("LUFS", ring.withTrimmedTop(d * 0.51f).withHeight(d * 0.10f),
+  g.drawText("LUFS-M EST.", ring.withTrimmedTop(d * 0.51f).withHeight(d * 0.10f),
              juce::Justification::centred);
   g.setFont(juce::Font(juce::FontOptions(d * 0.057f)).withExtraKerningFactor(0.06f));
-  g.drawText("MASTER READY", ring.withTrimmedTop(d * 0.62f).withHeight(d * 0.10f),
+  g.drawText(processor.analysisRunning.load() ? "ANALYZING" : "SMART ENGINE", ring.withTrimmedTop(d * 0.62f).withHeight(d * 0.10f),
              juce::Justification::centred);
   g.setColour(C::muted);
   g.setFont(juce::FontOptions(d * 0.043f));
-  g.drawText("TRUE PEAK  -1.0 dBTP", ring.withTrimmedTop(d * 0.73f).withHeight(d * 0.08f),
+  g.drawText("OUTPUT MOMENTARY", ring.withTrimmedTop(d * 0.73f).withHeight(d * 0.08f),
              juce::Justification::centred);
 }
 
@@ -236,13 +293,20 @@ void CardizOneAudioProcessorEditor::paint(juce::Graphics& g) {
   g.drawText("FROM VOICE TO MASTER", 0, 75, getWidth(), 18, juce::Justification::centred);
 
   auto panel = juce::Rectangle<float>(26.0f, 108.0f, all.getWidth() - 52.0f,
-                                      all.getHeight() - 205.0f);
+                                      365.0f);
   g.setGradientFill(vGradient(C::panel.withAlpha(0.86f), C::black.withAlpha(0.93f), panel));
   g.fillRoundedRectangle(panel, 7.0f);
   g.setColour(C::gold.withAlpha(0.56f));
   g.drawRoundedRectangle(panel, 7.0f, 0.9f);
   g.setColour(C::pale.withAlpha(0.055f));
   g.drawHorizontalLine((int) panel.getY() + 63, panel.getX() + 16, panel.getRight() - 16);
+  {
+    const int mode=(int)processor.apvts.getRawParameterValue("mode")->load();
+    g.setColour(C::muted);
+    g.setFont(juce::Font(juce::FontOptions(9.f)).withExtraKerningFactor(.15f));
+    const juce::String label=mode==0 ? "PERFIL VOCAL" : (mode==1 ? "PERFIL MASTER" : "ESTRATEGIA PRO");
+    g.drawText(label,280,169,103,18,juce::Justification::centredRight);
+  }
 
   g.setColour(C::ivory.withAlpha(0.96f));
   g.setFont(juce::Font(juce::FontOptions(12.3f)).withExtraKerningFactor(0.06f));
@@ -259,37 +323,73 @@ void CardizOneAudioProcessorEditor::paint(juce::Graphics& g) {
   g.drawText("CLEAN  ·  BALANCED  ·  POWERFUL", getWidth() / 2 - 180, 378, 360, 18,
              juce::Justification::centred);
 
+  auto report=juce::Rectangle<float>(26.f,485.f,all.getWidth()-52.f,145.f);
+  g.setGradientFill(vGradient(juce::Colour::fromRGB(16,17,17),C::black,report));
+  g.fillRoundedRectangle(report,7.f);
+  g.setColour(C::gold.withAlpha(.42f));
+  g.drawRoundedRectangle(report,7.f,.8f);
+  g.setColour(C::pale.withAlpha(.78f));
+  g.setFont(juce::Font(juce::FontOptions(9.5f)).withExtraKerningFactor(.24f));
+  g.drawText("DIAGNOSTICO INTELIGENTE",350,490,300,16,juce::Justification::centred);
+
   drawMeter(g, {35.0f, (float) getHeight() - 61.0f, 255.0f, 25.0f},
             processor.inputPeak.load(), "INPUT");
   drawMeter(g, {(float) getWidth() - 290.0f, (float) getHeight() - 61.0f, 255.0f, 25.0f},
             processor.outputPeak.load(), "OUTPUT");
-  g.setColour(C::muted);
-  g.setFont(juce::Font(juce::FontOptions(10.0f)).withExtraKerningFactor(0.24f));
-  g.drawText("MASTERING ENHANCEMENT", getWidth() / 2 - 155, getHeight() - 68, 310, 18,
-             juce::Justification::centred);
-  g.setColour(C::ivory.withAlpha(0.72f));
-  g.setFont(juce::Font(juce::FontOptions(9.2f)).withExtraKerningFactor(0.23f));
-  g.drawText("NATURAL  ·  MUSICAL  ·  PROFESSIONAL", getWidth() / 2 - 190,
-             getHeight() - 43, 380, 18, juce::Justification::centred);
 }
 
 void CardizOneAudioProcessorEditor::resized() {
   vox.setBounds(270, 121, 145, 34);
   master.setBounds(428, 121, 145, 34);
   pro.setBounds(586, 121, 145, 34);
-  tonal.setBounds(57, 224, 132, 142);
-  glue.setBounds(221, 224, 132, 142);
-  punch.setBounds(647, 224, 132, 142);
-  width.setBounds(811, 224, 132, 142);
+  voiceStyle.setBounds(390,164,220,30);
+  masterStyle.setBounds(390,164,220,30);
+  proStyle.setBounds(390,164,220,30);
+  tonal.setBounds(57, 232, 132, 142);
+  glue.setBounds(221, 232, 132, 142);
+  punch.setBounds(647, 232, 132, 142);
+  width.setBounds(811, 232, 132, 142);
   finish.setBounds(416, 414, 168, 39);
+  analysisStatus.setBounds(235,452,530,24);
+  diagnosticDetail.setBounds(190,508,620,20);
+  recommendation.setBounds(145,530,710,20);
+  before.setBounds(355,556,140,28);
+  after.setBounds(505,556,140,28);
 }
 
 void CardizOneAudioProcessorEditor::timerCallback() {
+  if(processor.analysisRunning.load()) {
+    const auto pc=(int)(processor.analysisProgress.load()*100.f);
+    analysisStatus.setText(pc==0 ? "REPRODUCE LA PISTA PARA COMENZAR" : "ANALIZANDO  "+juce::String(pc)+"%",juce::dontSendNotification);
+  } else if(processor.applyAnalysisResult()) {
+    const int mode=(int)processor.apvts.getRawParameterValue("mode")->load();
+    const int selectedProfile=(int)processor.apvts.getRawParameterValue(mode==0 ? "voiceStyle" : (mode==1 ? "masterStyle" : "proStyle"))->load();
+    const juce::StringArray voiceProfiles {"LATINO URBANO","ELECTRONICA","BALADA","NATURAL"};
+    const juce::StringArray masterProfiles {"STREAMING MODERNO","CLUB / ELECTRONICA","BALADA / ORGANICO","TRANSPARENTE"};
+    const juce::StringArray proProfiles {"IMPACTO CONTROLADO","DINAMICA ABIERTA","BALANCE CALIDO","REFERENCIA NEUTRA"};
+    const juce::String profileName=mode==0 ? voiceProfiles[selectedProfile] : (mode==1 ? masterProfiles[selectedProfile] : proProfiles[selectedProfile]);
+    const auto low=processor.analysedLow.load(), high=processor.analysedHigh.load();
+    const juce::String tone=low>.48f ? "VOZ OSCURA" : (high>.25f ? "VOZ BRILLANTE" : "VOZ EQUILIBRADA");
+    const juce::String balance=low>.48f ? "BALANCE GRAVE" : (high>.25f ? "BALANCE BRILLANTE" : "BALANCE NEUTRO");
+    const juce::String resultTone=mode==0 ? tone : balance;
+    const juce::String resultMode=mode==0 ? "VOZ" : (mode==1 ? "MASTER" : "PRO");
+    analysisStatus.setText(resultMode+" / "+profileName+" · RMS "+juce::String(processor.analysedRms.load(),1)+" dB · "+resultTone+" · APLICADO",juce::dontSendNotification);
+    const bool sibilant=processor.analysedSibilance.load()>.025f;
+    const bool resonant=processor.analysedResonanceSeverity.load()>1.25f;
+    diagnosticDetail.setText("CREST "+juce::String(processor.analysedCrest.load(),1)+" dB  ·  SIBILANCIA "+(sibilant?"ALTA":"CONTROLADA")+"  ·  RESONANCIA "+juce::String(processor.analysedResonanceHz.load(),0)+" Hz",juce::dontSendNotification);
+    juce::String advice="Nivel y balance optimizados";
+    if(sibilant && resonant) advice="De-esser y reduccion de resonancia aplicados automaticamente";
+    else if(sibilant) advice="Correccion de sibilancia aplicada; revisa las consonantes S y CH";
+    else if(resonant) advice="Resonancia dominante atenuada sin vaciar el cuerpo de la pista";
+    recommendation.setText("RECOMENDACION · "+advice+" · compara ANTES / CARDIZ ONE",juce::dontSendNotification);
+  }
   const int mode = (int) processor.apvts.getRawParameterValue("mode")->load();
   vox.setToggleState(mode == 0, juce::dontSendNotification);
   master.setToggleState(mode == 1, juce::dontSendNotification);
   pro.setToggleState(mode == 2, juce::dontSendNotification);
-  finish.setToggleState(processor.apvts.getRawParameterValue("analyze")->load() > 0.5f,
-                        juce::dontSendNotification);
+  finish.setToggleState(processor.analysisRunning.load(),juce::dontSendNotification);
+  const bool dry=processor.apvts.getRawParameterValue("compareDry")->load()>.5f;
+  before.setToggleState(dry,juce::dontSendNotification);
+  after.setToggleState(!dry,juce::dontSendNotification);
   repaint();
 }

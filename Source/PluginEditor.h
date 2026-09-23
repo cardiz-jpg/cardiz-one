@@ -21,7 +21,7 @@ public:
 
 private:
   void timerCallback() override;
-  void selectMode(int);
+  void selectMode(int, bool applyPreset = false);
   void drawMeter(juce::Graphics&, juce::Rectangle<float>, float, const juce::String&);
   void drawLufsDial(juce::Graphics&, juce::Rectangle<float>);
 
@@ -29,7 +29,12 @@ private:
   GoldLookAndFeel look;
   juce::Slider tonal, glue, punch, width;
   juce::TextButton vox {"ONE VOX"}, master {"ONE MASTER"}, pro {"PRO"}, finish {"FINISH"};
+  juce::TextButton before {"ANTES · MATCH"}, after {"CARDIZ ONE"};
+  juce::ComboBox voiceStyle, masterStyle, proStyle;
+  juce::Label analysisStatus, diagnosticDetail, recommendation;
   using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
   std::unique_ptr<SA> aTonal, aGlue, aPunch, aWidth;
+  using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+  std::unique_ptr<CA> aStyle, aMasterStyle, aProStyle;
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CardizOneAudioProcessorEditor)
 };
