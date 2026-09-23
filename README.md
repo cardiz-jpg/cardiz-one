@@ -1,4 +1,4 @@
-# CARDIZ ONE v0.6 PRE-LAUNCH DEMO
+# CARDIZ ONE v0.7 REAL ENGINE TEST
 
 Plugin vocal/mastering para Ableton Live 12. La interfaz mantiene el diseño oficial negro carbón, marfil y dorado con cuatro controles, lectura momentánea estimada y modos ONE VOX / ONE MASTER / PRO.
 
@@ -9,9 +9,16 @@ Plugin vocal/mastering para Ableton Live 12. La interfaz mantiene el diseño ofi
 - PRO: estrategias IMPACTO CONTROLADO, DINAMICA ABIERTA, BALANCE CALIDO y REFERENCIA NEUTRA.
 - El análisis escucha audio real, muestra progreso, informa RMS/balance tonal y aplica una propuesta audible.
 
-## Diagnóstico y comparación v0.6
+## Perfiles DSP reales v0.7
 
-- Comparación ANTES / CARDIZ ONE igualada automáticamente por nivel RMS.
+- Los 12 perfiles tienen objetivos independientes de filtro pasa-altos, cuerpo, presencia, aire, compresión, saturación, de-esser e imagen estéreo.
+- Cambiar de perfil modifica el procesamiento inmediatamente; ANALIZAR lo adapta después al audio medido.
+- ONE VOX incluye cadenas diferenciadas para LATINO URBANO, ELECTRONICA, BALADA y NATURAL.
+- ONE MASTER y PRO también usan cadenas específicas, no nombres decorativos.
+
+## Diagnóstico y comparación v0.7
+
+- Comparación ANTES / CARDIZ ONE con entrada seca real, igualada automáticamente por nivel RMS y transición anticlick de 5 ms.
 - Detección de sibilancia entre 5 y 10 kHz con reducción dinámica split-band.
 - Detección de resonancias dominantes en cuatro zonas críticas y reducción selectiva.
 - Informe visible de RMS, crest factor, balance tonal, sibilancia y frecuencia resonante.

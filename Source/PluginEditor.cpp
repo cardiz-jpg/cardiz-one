@@ -144,10 +144,23 @@ CardizOneAudioProcessorEditor::CardizOneAudioProcessorEditor(CardizOneAudioProce
   };
   before.onClick=[this] {
     if(auto* p=processor.apvts.getParameter("compareDry")) p->setValueNotifyingHost(1.f);
+    analysisStatus.setText("ANTES · ORIGINAL CON VOLUMEN IGUALADO",juce::dontSendNotification);
   };
   after.onClick=[this] {
     if(auto* p=processor.apvts.getParameter("compareDry")) p->setValueNotifyingHost(0.f);
+    analysisStatus.setText("CARDIZ ONE · PROCESAMIENTO ACTIVO",juce::dontSendNotification);
   };
+
+  auto profileChanged=[this] {
+    const int mode=(int)processor.apvts.getRawParameterValue("mode")->load();
+    auto* box=mode==0 ? &voiceStyle : (mode==1 ? &masterStyle : &proStyle);
+    analysisStatus.setText("PERFIL "+box->getText()+" CARGADO · PULSA ANALIZAR",juce::dontSendNotification);
+    diagnosticDetail.setText("EQ · DINAMICA · SATURACION · DE-ESS · IMAGEN ESTEREO",juce::dontSendNotification);
+    recommendation.setText("El perfil ya procesa la señal; ANALIZAR lo adapta a esta pista",juce::dontSendNotification);
+  };
+  voiceStyle.onChange=profileChanged;
+  masterStyle.onChange=profileChanged;
+  proStyle.onChange=profileChanged;
 
   aTonal = std::make_unique<SA>(p.apvts, "tonal", tonal);
   aGlue = std::make_unique<SA>(p.apvts, "glue", glue);

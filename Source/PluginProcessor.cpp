@@ -37,7 +37,9 @@ void CardizOneAudioProcessor::prepareToPlay(double sr,int block) {
   *airFilter.state=*juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr,9000.f,.7071f,1.f);
   *resonanceFilter.state=*juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr,1000.f,3.f,1.f);
   drive.reset(sr,.04); width.reset(sr,.04); makeup.reset(sr,.08); abGain.reset(sr,.08);
-  comparisonMix.reset(sr,.025);
+  // A/B must react immediately enough to be unmistakable, while keeping a
+  // short ramp to avoid clicks at the transition.
+  comparisonMix.reset(sr,.005);
   abGain.setCurrentAndTargetValue(1.f);
   comparisonMix.setCurrentAndTargetValue(apvts.getRawParameterValue("compareDry")->load()>.5f ? 1.f : 0.f);
   momentaryEnergy=wetMatchEnergy=dryMatchEnergy=0;
@@ -163,26 +165,61 @@ void CardizOneAudioProcessor::processBlock(juce::AudioBuffer<float>& b,juce::Mid
   const float resonanceHz=apvts.getRawParameterValue("resonanceHz")->load();
   const float resonanceCut=apvts.getRawParameterValue("resonanceCut")->load();
   const int mode=(int)apvts.getRawParameterValue("mode")->load();
-  const int style=(int)apvts.getRawParameterValue("voiceStyle")->load();
-  const int activeStyle=mode==0 ? style : 3;
-  const float stylePresence[] {1.8f,2.8f,.8f,.3f}, styleBody[] {-1.8f,-2.5f,1.2f,0.f}, styleAir[] {1.5f,3.0f,.6f,0.f};
-  const float profile = mode==0 ? 1.f : (mode==1 ? .45f : 0.f);
-  if(mode!=cachedMode || style!=cachedStyle || std::abs(tonal-cachedTonal)>.0001f) {
-    lowCut.setCutoffFrequency(mode==0 ? 65.f : (mode==1 ? 24.f : 30.f));
-    *presenceFilter.state=*juce::dsp::IIR::Coefficients<float>::makePeakFilter(currentSampleRate,3800.f,.85f,juce::Decibels::decibelsToGain((tonal-.5f)*5.f+stylePresence[activeStyle]*profile));
-    *bodyFilter.state=*juce::dsp::IIR::Coefficients<float>::makePeakFilter(currentSampleRate,220.f,.8f,juce::Decibels::decibelsToGain(styleBody[activeStyle]*profile));
-    *airFilter.state=*juce::dsp::IIR::Coefficients<float>::makeHighShelf(currentSampleRate,9000.f,.7071f,juce::Decibels::decibelsToGain(styleAir[activeStyle]*profile));
-    cachedMode=mode; cachedStyle=style; cachedTonal=tonal;
+  const int voiceProfile=(int)apvts.getRawParameterValue("voiceStyle")->load();
+  const int masterProfile=(int)apvts.getRawParameterValue("masterStyle")->load();
+  const int proProfile=(int)apvts.getRawParameterValue("proStyle")->load();
+  const int selectedProfile=juce::jlimit(0,3,mode==0 ? voiceProfile : (mode==1 ? masterProfile : proProfile));
+
+  // These are twelve genuinely different processing targets, not labels.
+  // Every profile has its own HPF, body bell, presence bell, air shelf and
+  // dynamics/saturation behaviour. The four macro controls then trim the
+  // selected target instead of replacing it.
+  struct Profile {
+    float hpf, bodyHz, bodyQ, bodyDb, presenceHz, presenceQ, presenceDb;
+    float airHz, airDb, thresholdDb, ratio, attackMs, releaseMs, drive, deEssBias, widthBias;
+  };
+  static constexpr Profile profiles[3][4] {
+    { // ONE VOX
+      { 78.f, 250.f, .82f, -2.4f, 3900.f, .90f,  2.7f, 10500.f, 1.8f, -20.f, 3.2f,  7.f, 105.f, .48f, .18f, -.30f }, // Latino urbano
+      { 88.f, 310.f, .95f, -3.2f, 4700.f, .82f,  3.8f,  9200.f, 3.2f, -22.f, 3.8f,  4.f,  82.f, .62f, .30f, -.08f }, // Electronica
+      { 62.f, 190.f, .75f,  1.7f, 3100.f, .95f,  1.1f, 11500.f, 1.0f, -17.f, 2.3f, 18.f, 155.f, .25f, .08f, -.38f }, // Balada
+      { 55.f, 230.f, .85f,  0.2f, 3600.f, 1.00f,  0.5f, 12000.f, 0.4f, -15.f, 1.8f, 24.f, 185.f, .12f, .02f, -.46f }  // Natural
+    },
+    { // ONE MASTER
+      { 24.f, 180.f, .72f, -0.8f, 3200.f, .90f,  1.0f, 11000.f, 1.1f, -13.f, 2.0f, 22.f, 170.f, .18f, .03f,  .06f }, // Streaming moderno
+      { 28.f, 140.f, .70f,  1.2f, 4100.f, .82f,  1.7f,  9500.f, 1.8f, -15.f, 2.8f, 12.f, 115.f, .32f, .05f,  .18f }, // Club/electronica
+      { 22.f, 220.f, .78f,  0.8f, 2700.f, 1.00f,  0.4f, 12500.f, 0.5f, -11.f, 1.7f, 30.f, 220.f, .10f, .01f, -.04f }, // Balada/organico
+      { 20.f, 200.f, .82f,  0.0f, 3500.f, 1.00f,  0.1f, 13000.f, 0.1f, -10.f, 1.4f, 35.f, 250.f, .05f, .00f,  .00f }  // Transparente
+    },
+    { // PRO
+      { 26.f, 170.f, .76f, -0.5f, 3600.f, .86f,  0.9f, 11000.f, 0.8f, -12.f, 2.1f, 18.f, 150.f, .16f, .02f,  .04f }, // Impacto controlado
+      { 20.f, 210.f, .85f,  0.2f, 3000.f, 1.05f,  0.2f, 13000.f, 0.3f,  -8.f, 1.3f, 38.f, 280.f, .04f, .00f, -.02f }, // Dinamica abierta
+      { 24.f, 190.f, .72f,  1.1f, 2900.f, .95f, -0.2f, 12000.f, 0.5f, -10.f, 1.6f, 28.f, 210.f, .09f, .01f, -.04f }, // Balance calido
+      { 20.f, 200.f, .90f,  0.0f, 3500.f, 1.00f,  0.0f, 14000.f, 0.0f,  -7.f, 1.2f, 45.f, 320.f, .02f, .00f,  .00f }  // Referencia neutra
+    }
+  };
+  const auto& target=profiles[juce::jlimit(0,2,mode)][selectedProfile];
+  const int profileKey=mode*10+selectedProfile;
+  if(mode!=cachedMode || profileKey!=cachedStyle || std::abs(tonal-cachedTonal)>.0001f) {
+    lowCut.setCutoffFrequency(target.hpf);
+    const float tonalTrim=(tonal-.5f)*5.f;
+    *bodyFilter.state=*juce::dsp::IIR::Coefficients<float>::makePeakFilter(currentSampleRate,target.bodyHz,target.bodyQ,juce::Decibels::decibelsToGain(target.bodyDb-tonalTrim*.20f));
+    *presenceFilter.state=*juce::dsp::IIR::Coefficients<float>::makePeakFilter(currentSampleRate,target.presenceHz,target.presenceQ,juce::Decibels::decibelsToGain(target.presenceDb+tonalTrim));
+    *airFilter.state=*juce::dsp::IIR::Coefficients<float>::makeHighShelf(currentSampleRate,target.airHz,.7071f,juce::Decibels::decibelsToGain(target.airDb+tonalTrim*.45f));
+    cachedMode=mode; cachedStyle=profileKey; cachedTonal=tonal;
   }
   if(std::abs(resonanceHz-cachedResonanceHz)>.01f || std::abs(resonanceCut-cachedResonanceCut)>.001f) {
     *resonanceFilter.state=*juce::dsp::IIR::Coefficients<float>::makePeakFilter(currentSampleRate,resonanceHz,3.2f,juce::Decibels::decibelsToGain(-resonanceCut));
     cachedResonanceHz=resonanceHz; cachedResonanceCut=resonanceCut;
   }
-  compressor.setThreshold(-8.f-glue*16.f); compressor.setRatio(1.5f+glue*3.5f);
-  compressor.setAttack(24.f-punch*20.f); compressor.setRelease(70.f+glue*160.f);
+  compressor.setThreshold(target.thresholdDb-glue*7.f);
+  compressor.setRatio(juce::jlimit(1.f,6.f,target.ratio+glue*1.6f));
+  compressor.setAttack(juce::jlimit(2.f,80.f,target.attackMs*(1.35f-.70f*punch)));
+  compressor.setRelease(juce::jlimit(45.f,400.f,target.releaseMs*(.75f+.55f*glue)));
   limiter.setThreshold(apvts.getRawParameterValue("ceiling")->load()); limiter.setRelease(90.f);
-  const float driveAmount=mode==0 ? .8f : (mode==1 ? .35f : .18f);
-  drive.setTargetValue(1.f+driveAmount*glue); width.setTargetValue(.7f+wide*.8f);
+  const float driveAmount=target.drive;
+  drive.setTargetValue(1.f+driveAmount*(.35f+.90f*glue));
+  width.setTargetValue(juce::jlimit(.45f,1.65f,.72f+wide*.62f+target.widthBias));
   makeup.setTargetValue(juce::Decibels::decibelsToGain(apvts.getRawParameterValue("makeup")->load()));
   juce::dsp::AudioBlock<float> block(b); juce::dsp::ProcessContextReplacing<float> ctx(block);
   lowCut.process(ctx); bodyFilter.process(ctx); resonanceFilter.process(ctx); presenceFilter.process(ctx); airFilter.process(ctx);
@@ -198,7 +235,8 @@ void CardizOneAudioProcessor::processBlock(juce::AudioBuffer<float>& b,juce::Mid
     const float envCoef=detector>deEssEnvelope[c] ? attackCoef : releaseCoef;
     deEssEnvelope[c]=envCoef*deEssEnvelope[c]+(1.f-envCoef)*detector;
     const float activity=juce::jlimit(0.f,1.f,(deEssEnvelope[c]-.012f)/.055f);
-    b.setSample(c,n,x-highBand*(activity*deEss*.72f));
+    const float profileDeEss=juce::jlimit(0.f,1.f,deEss+target.deEssBias);
+    b.setSample(c,n,x-highBand*(activity*profileDeEss*.78f));
   }
   compressor.process(ctx);
   for(int n=0;n<b.getNumSamples();++n) {
